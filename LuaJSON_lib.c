@@ -16,6 +16,43 @@
 #include <float.h>
 #include <math.h>
 
+typedef struct _notluaL_Buffer
+{
+    size_t stored;
+    size_t bufLen;
+    char * buffer;
+} notluaL_Buffer;
+
+
+void notluaL_buffinit(notluaL_Buffer * pLBuf)
+{
+    pLBuf->stored = 0;
+    pLBuf->bufLen = 512;
+    pLBuf->buffer = malloc(pLBuf->bufLen);
+}
+void notluaL_addchar(notluaL_Buffer * pLBuf, char ch)
+{
+    if (pLBuf->stored >= pLBuf->bufLen) {
+        pLBuf->bufLen *= 2;
+        char * tmp = malloc(pLBuf->bufLen);
+        memcpy(tmp, pLBuf->buffer, pLBuf->stored);
+        char *oldBuf = pLBuf->buffer;
+        pLBuf->buffer = tmp;
+        free(oldBuf);
+    }
+    pLBuf->buffer[pLBuf->stored++] = ch;
+}
+
+void notluaL_addlstring(notluaL_Buffer *B, const char *s, size_t l) {
+    while (l--)
+        notluaL_addchar(B, *s++);
+}
+
+
+void notluaL_addstring(notluaL_Buffer *B, const char *s) {
+    notluaL_addlstring(B, s, strlen(s));
+}
+
 /// <summary>Displays a given error message in Lua.</summary>
 /// <param name="L">Lua state to display the error on.</param>
 /// <param name="f_sMsg">Error message to display.</param>
@@ -330,7 +367,7 @@ void decode_object(lua_State *L, char * str, char ** c)
 	if (**c == '}')
 		(*c)++;
 	else
-		error(L, strcat(*c, "JSON readObject(3) b0rked :c."));
+		error(L, "JSON readObject(3) b0rked :c.");
 }
 
 void decode_string(lua_State *L, char * str, char ** c)
@@ -534,6 +571,10 @@ int decode(lua_State *L)
 		str = (char *)lua_touserdata(L, 1);
 	else
 	{
+        static int i = 0;
+//        printf("i is now %d\n",++i);
+//        if (i == 1407)
+//            printf("1407");
 		const char * sTmp = luaL_checklstring(L, 1, &str_size);
 		str = (char *)malloc(str_size + 1);
 		memcpy(str, sTmp, str_size);
@@ -740,42 +781,42 @@ void removeLastFromList(linkedList * L, linkedList * Last)
 linkedList * baseList;
 
 /// -0 +0
-void encode_boolean(lua_State *L, const int value, luaL_Buffer *StringBuf)
+void encode_boolean(lua_State *L, const int value, notluaL_Buffer *StringBuf)
 {
-	luaL_addstring(StringBuf, value ? "true" : "false");
+	notluaL_addstring(StringBuf, value ? "true" : "false");
 }
 
 /// -0 +0
-void encode_null(lua_State *L, luaL_Buffer *StringBuf)
+void encode_null(lua_State *L, notluaL_Buffer *StringBuf)
 {
-	luaL_addstring(StringBuf, "null");
+	notluaL_addstring(StringBuf, "null");
 }
 
 /// -0 +0
-void encode_number(lua_State *L, const double value, luaL_Buffer *StringBuf)
+void encode_number(lua_State *L, const double value, notluaL_Buffer *StringBuf)
 {
 	char s[32];
 	if (value <= DBL_MAX && value >= -DBL_MAX)  // Check to see if the number is real and finite.
 	{
         sprintf(s, "%.14g", value);
-        luaL_addstring(StringBuf, s);
+        notluaL_addstring(StringBuf, s);
     }
     else    // If it's not, use null.
         encode_null(L, StringBuf);
 }
 
 /// -0 +0
-void encode_string(lua_State *L, const char * S, const int len, luaL_Buffer *StringBuf)
+void encode_string(lua_State *L, const char * S, const int len, notluaL_Buffer *StringBuf)
 {
 	char * quote_s = quote(S, len);
-	luaL_addstring(StringBuf, quote_s);
+	notluaL_addstring(StringBuf, quote_s);
 	free(quote_s);
 }
 
-void encode_value(lua_State *L, luaL_Buffer *StringBuf);
+void encode_value(lua_State *L, notluaL_Buffer *StringBuf);
 
 /// Takes a table at the top of the stack, and appends it, stringified, to StringBuf.
-void encode_table(lua_State *L, luaL_Buffer *StringBuf)
+void encode_table(lua_State *L, notluaL_Buffer *StringBuf)
 {
 	void * tablePtr = (void *)lua_topointer(L, -1); // -0 +0
 	linkedList * foundMatch = findInList(baseList, tablePtr);
@@ -788,7 +829,7 @@ void encode_table(lua_State *L, luaL_Buffer *StringBuf)
 		if (lua_isnil(L, -1))   // No t[1], treat as object.
 		{
 			lua_pop(L, 1);  // -1 +0
-			luaL_addchar(StringBuf, '{');
+			notluaL_addchar(StringBuf, '{');
 			lua_getglobal(L, "pairs"); // -0 +1
 			lua_pushvalue(L, -2);   // -0 +1
 			lua_call(L, 1, 3);  // -2 +3 pairs(t), three return-values put on stack
@@ -811,20 +852,20 @@ void encode_table(lua_State *L, luaL_Buffer *StringBuf)
 					continue;
 				}
 				if (!first)
-					luaL_addchar(StringBuf, ',');
+					notluaL_addchar(StringBuf, ',');
 				else
 					first = FALSE;
 				lua_pushvalue(L, -2);   // -0 +1
 				encode_value(L, StringBuf); // -1 +0
-				luaL_addchar(StringBuf, ':');   // -0 +0
+				notluaL_addchar(StringBuf, ':');   // -0 +0
 				encode_value(L, StringBuf); // -1 +0
 			}
-			luaL_addchar(StringBuf, '}');
+			notluaL_addchar(StringBuf, '}');
 		}
 		else	// t[1] exists, treat as array.
 		{
 			lua_pop(L, 1);  // -1 +0
-			luaL_addchar(StringBuf, '[');
+			notluaL_addchar(StringBuf, '[');
 			lua_getglobal(L, "ipairs"); // -0+1
 			lua_pushvalue(L, -2);   // -0+1
 			lua_call(L, 1, 3);  // -2+3 ipairs(t), three return-values put on stack
@@ -842,25 +883,25 @@ void encode_table(lua_State *L, luaL_Buffer *StringBuf)
 					break;
 				}
 				if (!first)
-					luaL_addchar(StringBuf, ',');
+					notluaL_addchar(StringBuf, ',');
 				else
 					first = FALSE;
 				encode_value(L, StringBuf); // -1 +0
 			}
-			luaL_addchar(StringBuf, ']');
+			notluaL_addchar(StringBuf, ']');
 		}
 		removeLastFromList(baseList, NULL);
 	}
 	else
 	{
 		printf("RECURSION\n");
-		luaL_addstring(StringBuf, "RECURSION");
+		notluaL_addstring(StringBuf, "RECURSION");
 	}
 }
 
 /// Takes the value at the top of L's stack, and appends it to StringBuf.
 /// -1 +0
-void encode_value(lua_State *L, luaL_Buffer *StringBuf)
+void encode_value(lua_State *L, notluaL_Buffer *StringBuf)
 {
     int B;
     double N;
@@ -896,19 +937,19 @@ void encode_value(lua_State *L, luaL_Buffer *StringBuf)
 		}
 		break;
     case LUA_TFUNCTION:
-        luaL_addstring(StringBuf, "FUNCTION");
+        notluaL_addstring(StringBuf, "FUNCTION");
         break;
     case LUA_TUSERDATA:
-		luaL_addstring(StringBuf, "USERDATA");
+		notluaL_addstring(StringBuf, "USERDATA");
 		break;
     case LUA_TLIGHTUSERDATA:
-		luaL_addstring(StringBuf, "LIGHTUSERDATA");
+		notluaL_addstring(StringBuf, "LIGHTUSERDATA");
 		break;
     case LUA_TTHREAD:
-		luaL_addstring(StringBuf, "THREAD");
+		notluaL_addstring(StringBuf, "THREAD");
 		break;
     case LUA_TNIL:
-		luaL_addstring(StringBuf, "");
+		notluaL_addstring(StringBuf, "");
         break;
 	}
 	lua_pop(L, 1);
@@ -916,15 +957,15 @@ void encode_value(lua_State *L, luaL_Buffer *StringBuf)
 
 int encode(lua_State * L)
 {
-	lua_State * Strings = lua_open(); // Lua state which will hold the string buffer stack.
-	luaL_Buffer * LBuf = malloc(sizeof(luaL_Buffer));
-	luaL_buffinit(Strings, LBuf); // This one.
+    size_t len;
+    const char * tstring = NULL;
+    notluaL_Buffer LBuf;
+    notluaL_buffinit( &LBuf); // This one.
 	lua_settop(L, 1);   // Only take the first argument.
-	encode_value(L, LBuf); // -1 +0
-	luaL_pushresult(LBuf);  // -0 +1
-	free(LBuf);
-	lua_xmove(Strings, L, 1);   // Move the finished string to the main state.
-	lua_close(Strings);
+	encode_value(L, &LBuf); // -1 +0
+
+    lua_pushlstring(L, LBuf.buffer, LBuf.stored );
+    free(LBuf.buffer);
 	return 1;
 }
 
